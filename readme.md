@@ -2,7 +2,7 @@
 
 > ETL pipeline and SQL analytics for the five major European football leagues — Football-Data.org → SQLite → Streamlit.
 
-**[🔗 Live Demo](#)** &nbsp;·&nbsp; `https://automated-soccer-analytics-82zqd9icqr7zzmqn5gkkw6.streamlit.app/`
+**[🔗 Live Demo](https://automated-soccer-analytics-82zqd9icqr7zzmqn5gkkw6.streamlit.app/)** &nbsp;·&nbsp;
 
 A pipeline that pulls a full season of matches (≈1,750 across 5 leagues), derives per-match metrics in pandas, loads them into a normalized SQLite schema, and serves eight analytical reports through a Streamlit dashboard. The same SQL layer backs both the dashboard and a headless CLI report.
 
