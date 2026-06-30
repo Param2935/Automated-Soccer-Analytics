@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Environment / secrets
+.env
+
+# Claude Code local files
+.claude/
+
+# SQLite databases — ignore local/test DBs, but ship the production one
+data/*.db
+!data/live_soccer.db
+
+# OS / editor cruft
+.DS_Store
+.vscode/
+.idea/
