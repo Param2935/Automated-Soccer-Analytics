@@ -54,34 +54,35 @@ def _setup_data_source():
     analytics layer reads from the merged cloud database. Otherwise, use
     the local file path (normal dev workflow).
     """
-    has_secrets = (
-        "AWS_ACCESS_KEY_ID" in st.secrets
-        and "AWS_SECRET_ACCESS_KEY" in st.secrets
-        and "S3_BUCKET" in st.secrets
-    )
-
+    try:
+        has_secrets = all(
+            k in st.secrets
+            for k in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "S3_BUCKET")
+        )
+    except Exception:
+        has_secrets = False  # no secrets.toml at all → local dev
+ 
     if has_secrets:
         merged_path = _sync_db_from_s3()
         if merged_path and os.path.exists(merged_path):
             config.DB_PATH = merged_path
             config.DATABASE_URL = f"sqlite:///{merged_path}"
-            # Re-initialize the query layer's engine to point at the new path
-            if hasattr(queries, "_engine"):
-                queries._engine = None
+            if hasattr(queries, "_engine") and hasattr(queries._engine, "cache_clear"):
+                queries._engine.cache_clear()
             return "cloud"
 
     return "local"
-
-
-# Data loading
-
+ 
+ 
+# Data loading 
+ 
 @st.cache_data(ttl=300)
 def competitions() -> pd.DataFrame:
     if not os.path.exists(config.DB_PATH):
         return pd.DataFrame()
     try:
         return queries.competitions()
-    except OperationalError:
+    except (OperationalError, TypeError):
         return pd.DataFrame()
 
 

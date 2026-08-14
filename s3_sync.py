@@ -21,8 +21,6 @@ logger = logging.getLogger(__name__)
 LEAGUE_CODES = ["PL", "PD", "BL1", "SA", "FL1"]
 S3_KEY_PREFIX = "databases"
 
-# Tables to merge, in dependency order (parents before children).
-# These match the schema your loader.py creates.
 TABLES = ["competitions", "teams", "matches", "match_metrics"]
 
 
@@ -48,8 +46,12 @@ def _download_league_db(s3, bucket: str, league_code: str, tmp_dir: str) -> str 
         logger.info("Downloaded s3://%s/%s (%d bytes)", bucket, s3_key, os.path.getsize(local_path))
         return local_path
     except s3.exceptions.ClientError as e:
-        if e.response["Error"]["Code"] == "404":
-            logger.warning("Not found: s3://%s/%s (league may not have run yet)", bucket, s3_key)
+        error_code = e.response["Error"]["Code"]
+        if error_code in ("404", "NoSuchKey", "403"):
+            logger.warning(
+                "Skipping %s (error %s): s3://%s/%s",
+                league_code, error_code, bucket, s3_key,
+            )
             return None
         raise
 
@@ -120,14 +122,13 @@ def sync_from_s3() -> str:
     """
     Main entry point. Downloads all per-league DBs from S3, merges them
     into one unified file, and returns its path.
-
-    The merged DB is written to a persistent temp location so it survives
-    across Streamlit reruns within the same server process.
     """
     bucket = st.secrets["S3_BUCKET"]
     s3 = _get_s3_client()
-
-    tmp_dir = tempfile.mkdtemp(prefix="soccer_sync_")
+ 
+    tmp_dir = os.path.join(tempfile.gettempdir(), "soccer_sync")
+    os.makedirs(tmp_dir, exist_ok=True)
+ 
     db_paths = []
 
     for code in LEAGUE_CODES:
