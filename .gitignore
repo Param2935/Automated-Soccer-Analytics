@@ -19,3 +19,7 @@ data/*.db
 .DS_Store
 .vscode/
 .idea/
+.streamlit/secrets.toml
+
+package/
+*.zip
