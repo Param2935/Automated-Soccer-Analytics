@@ -1,8 +1,16 @@
 """
 Streamlit dashboard for the soccer analytics engine.
 
+CLOUD MODE (Streamlit Community Cloud + AWS S3):
+    Pulls the latest per-league SQLite databases from S3, merges them into
+    one unified DB, and points the analytics layer at it. Requires AWS
+    credentials in Streamlit secrets.
+
+LOCAL MODE (development):
+    Falls back to the local database file at config.DB_PATH, exactly as
+    before. No AWS credentials needed.
+
 Run with:  streamlit run app.py
-The ETL pipeline (`python main.py --mock`) must have populated the database first.
 """
 
 import os
@@ -22,6 +30,50 @@ st.set_page_config(page_title="Soccer Match Analytics", page_icon="⚽", layout=
 
 ALL_LEAGUES = "All leagues"
 
+
+# S3 sync 
+
+@st.cache_data(ttl=1800, show_spinner="Syncing latest data from S3…")
+def _sync_db_from_s3() -> str | None:
+    """
+    Download and merge the per-league databases from S3.
+    Cached for 30 minutes so the app doesn't re-download on every rerun.
+    Returns the path to the merged DB, or None if sync isn't available.
+    """
+    try:
+        from s3_sync import sync_from_s3
+        return sync_from_s3()
+    except Exception as e:
+        st.warning(f"S3 sync failed — falling back to local database. Error: {e}")
+        return None
+
+
+def _setup_data_source():
+    """
+    If AWS secrets are configured, sync from S3 and override config so the
+    analytics layer reads from the merged cloud database. Otherwise, use
+    the local file path (normal dev workflow).
+    """
+    has_secrets = (
+        "AWS_ACCESS_KEY_ID" in st.secrets
+        and "AWS_SECRET_ACCESS_KEY" in st.secrets
+        and "S3_BUCKET" in st.secrets
+    )
+
+    if has_secrets:
+        merged_path = _sync_db_from_s3()
+        if merged_path and os.path.exists(merged_path):
+            config.DB_PATH = merged_path
+            config.DATABASE_URL = f"sqlite:///{merged_path}"
+            # Re-initialize the query layer's engine to point at the new path
+            if hasattr(queries, "_engine"):
+                queries._engine = None
+            return "cloud"
+
+    return "local"
+
+
+# Data loading
 
 @st.cache_data(ttl=300)
 def competitions() -> pd.DataFrame:
@@ -52,6 +104,8 @@ def load(report: str, code: str | None, window: int = 5, through_matchday: int |
     except KeyError:
         raise ValueError(f"Unknown report: {report}")
 
+
+# Dashboard
 
 def league_dynamics(code: str | None, window: int) -> None:
     views.kpis(load("summary", code))
@@ -85,14 +139,31 @@ def advanced_insights(code: str | None) -> None:
     views.defensive_solidity(load("defense", code))
 
 
+# Main
+
 def main() -> None:
     st.title("⚽ Soccer Match Analytics")
 
+    # Decide data source: S3 (cloud) or local file
+    source = _setup_data_source()
+
     leagues = competitions()
     if leagues.empty:
-        command = "APP_MODE=test python main.py" if config.USE_MOCK else "python main.py"
-        st.warning(f"No data in `{config.DB_FILENAME}` yet. Populate it first:  `{command}`")
+        if source == "cloud":
+            st.warning(
+                "No data found in S3. Has the Lambda ETL pipeline run at least once? "
+                "Check your S3 bucket for `databases/PL/latest.db` etc."
+            )
+        else:
+            command = "APP_MODE=test python main.py" if config.USE_MOCK else "python main.py"
+            st.warning(f"No data in `{config.DB_FILENAME}` yet. Populate it first:  `{command}`")
         return
+
+    # Show data source indicator in sidebar
+    if source == "cloud":
+        st.sidebar.success("📡 Live from AWS S3")
+    else:
+        st.sidebar.info(f"💾 Local: {config.DB_FILENAME}")
 
     st.sidebar.header("Filters")
     choice = st.sidebar.selectbox("League", [ALL_LEAGUES, *leagues["name"]])
